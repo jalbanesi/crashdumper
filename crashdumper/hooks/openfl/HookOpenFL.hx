@@ -2,16 +2,10 @@ package crashdumper.hooks.openfl;
 import crashdumper.hooks.IHookPlatform;
 import haxe.io.Bytes;
 
-#if !lime_legacy
-	import lime.app.Application;
-	import lime.system.System;
-#end
-
 #if (openfl >= "2.0.0")
 	import openfl.Lib;
 	import openfl.utils.ByteArray;
 	import openfl.events.UncaughtErrorEvent;
-	import crashdumper.hooks.Util;
 #else
 	import nme.Lib;
 	import nme.utils.ByteArray;
@@ -41,26 +35,20 @@ class HookOpenFL implements IHookPlatform
 	public static inline var PATH_DESKTOP:String = "%DESKTOP%";			//The User's desktop
 	public static inline var PATH_APP:String = "%APP%";					//The Application's own directory
 	
-	private var errorEvent:Dynamic->Void;
-	
 	public function new() 
 	{
 		#if openfl
-			#if !flash
+			//#if !flash
 				#if lime_legacy
 					fileName = Lib.file;
 					packageName = Lib.packageName;
 					version = Lib.version;
-				#elseif (lime < "7.0.0")
-					fileName = Application.current.config.file;
-					packageName = Application.current.config.packageName;
-					version = Application.current.config.version;
 				#else
-					fileName = Application.current.meta.get("file");
-					packageName = Application.current.meta.get("packageName");
-					version = Util.getProjectVersion("project.xml");
+					fileName = Application.current.meta["file"];
+					packageName = Application.current.meta["packageName"];
+					version = Application.current.meta["version"];
 				#end
-			#end
+			//#end
 		#else
 			throw "OpenFL Library was not detected, using HookOpenFL is therefore impossible!";
 		#end
@@ -70,11 +58,11 @@ class HookOpenFL implements IHookPlatform
 	{
 		#if (windows || mac || linux || mobile)
 			#if (mobile)
-				if (!Util.isFirstChar(str, "/") && !Util.isFirstChar("\\"))
+				if (str.charAt(0) != "/" && str.charAt(0) != "\\")
 				{
-					str = Util.uCombine("/" + str);
+					str = "/" + str;
 				}
-				str = Util.uCombine([SystemPath.applicationStorageDirectory,str]);
+				str = SystemPath.applicationStorageDirectory + str;
 			#else
 				switch(str)
 				{
@@ -88,7 +76,11 @@ class HookOpenFL implements IHookPlatform
 			#end
 			if (str != "")
 			{
-				str = Util.fixTrailingSlash(str);
+				if (str.lastIndexOf("/") != str.length - 1 && str.lastIndexOf("\\") != str.length - 1)
+				{
+					//if the path is not blank, and the last character is not a slash
+					str = str + SystemData.slash();	//add a trailing slash
+				}
 			}
 		#end
 		return str;
@@ -96,32 +88,22 @@ class HookOpenFL implements IHookPlatform
 	
 	public function setErrorEvent(onErrorEvent:Dynamic->Void)
 	{
-		errorEvent = onErrorEvent;
 		Lib.current.loaderInfo.uncaughtErrorEvents.addEventListener(UncaughtErrorEvent.UNCAUGHT_ERROR, onErrorEvent);
-	}
-	
-	public function disable()
-	{
-		if (errorEvent != null)
-		{
-			trace("DISABLE ERROR EVENT");
-			Lib.current.loaderInfo.uncaughtErrorEvents.removeEventListener(UncaughtErrorEvent.UNCAUGHT_ERROR, errorEvent);
-		}
 	}
 	
 	public function getZipBytes(str):Bytes
 	{
 		#if !html5
-			#if flash
-				var fbytes:ByteArray = new ByteArray();
+			//#if flash
+			/*	var fbytes:ByteArray = new ByteArray();
 				fbytes.writeUTFBytes(str);
 				var bytes:Bytes = cast fbytes;
-				return bytes;
-			#else
+				return bytes;*/
+			//#else
 				var bytes:ByteArray = new ByteArray();
 				bytes.writeUTFBytes(str);
 				return bytes;
-			#end
+			//#end
 		#end
 		return null;
 	}

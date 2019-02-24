@@ -1,4 +1,8 @@
 package crashdumper;
+import flash.events.UncaughtErrorEvent;
+import openfl.net.URLLoader;
+import openfl.net.URLRequestMethod;
+import openfl.net.URLRequest;
 import crashdumper.hooks.Util;
 import crashdumper.hooks.IHookPlatform;
 import haxe.CallStack;
@@ -50,12 +54,9 @@ import openfl.events.Event;
  */
 class CrashDumper
 {
-	public static var active:Bool=true;	//whether we're actively crashdumping or not
-	
 	public var closeOnCrash:Bool;
 	public var postCrashMethod:CrashDumper->Void;
-	public var customDataMethod:CrashDumper->Void;
-	public var collectSystemData:Bool;
+	public var customDataMethod:String->String;
 	
 	public var session:SessionData;
 	public var system:SystemData;
@@ -66,7 +67,9 @@ class CrashDumper
 	public static var endl:String = "\n";
 	public static var sl:String = "/";
 	
-	
+	private var _alreadySentAnErrorThisSession: Bool = false;
+
+
 	public var pathLogErrors(default, null):String;
 	public var uniqueErrorLogPath(default, null):String;
 	
@@ -77,22 +80,17 @@ class CrashDumper
 	 * @param	url					url you want to send the crash dump to. If empty or null, no connection is made.
 	 * @param	customDataMethod_	method to call BEFORE a crash dump is created, so you can modify the crashDump object before it outputs
 	 * @param	closeOnCrash_		whether or not to close after a crash dump is created
-	 * @param	collectSystemData_	whether or not to gather system data (causes some cmd windows to pop open on first launch, which sometimes annoys users, so disable it if you like)
 	 * @param	postCrashMethod_	method to call AFTER a crash dump is created if closeOnCrash is false
 	 * @param	stage_				(flash target only) the root Stage object
 	 */
 	
-	public function new(sessionId_:String, ?path_:String, ?url_:String="http://localhost:8080/result", ?closeOnCrash_:Bool = true, ?collectSystemData_:Bool = false, ?customDataMethod_:CrashDumper->Void, ?postCrashMethod_:CrashDumper->Void, ?stage_:Dynamic) 
+	public function new(sessionId_:String, ?path_:String, ?url_:String="http://localhost:8080/result", closeOnCrash_:Bool = true, ?customDataMethod_:String->String, ?postCrashMethod_:CrashDumper->Void, ?stage_:Dynamic)
 	{
 		hook = Util.platform();
 		
 		closeOnCrash = closeOnCrash_;
-		collectSystemData = collectSystemData_;
 		postCrashMethod = postCrashMethod_;
 		customDataMethod = customDataMethod_;
-		
-		endl = SystemData.endl();
-		sl = SystemData.slash();
 		
 		path = path_;
 		
@@ -102,6 +100,11 @@ class CrashDumper
 		#end
 		
 		session = new SessionData(sessionId_, data);
+		
+		system = new SystemData();
+		
+		endl = SystemData.endl();
+		sl = SystemData.slash();
 		
 		hook.setErrorEvent(onErrorEvent);
 		
@@ -181,28 +184,48 @@ class CrashDumper
 	}
 
 	/***THE BIG ERROR FUNCTION***/
-	
-	private function onCriticalErrorEvent(message:String):Void
+
+	var _onCompleteCallback: String->Void = null;
+
+	public function logToServer(e: Dynamic, onCompleteCallback: String ->Void): Void
 	{
-		if(!CrashDumper.active) return;
-		throw message;
-	}
-	private function onErrorEvent(e:Dynamic):Void
-	{
-		if(!CrashDumper.active) return;
+		_onCompleteCallback = onCompleteCallback;
+
 		CACHED_STACK_TRACE = getStackTrace();
 		
-		#if !flash
+		//#if !flash
 			doErrorStuff(e);		//easy to separately override
-		#else
+		/*#else
 			doErrorStuffByHTTP(e);	//minimal flash error report
-		#end
-		
-		//cancel the event. We control exiting from here on out.
-		if(Std.is(e, openfl.events.Event)) 
+		#end*/
+	}
+	
+	private function onCriticalErrorEvent(message:String):Void 
+	{
+		throw message;		
+	}
+
+	private function onErrorEvent(e:Dynamic):Void
+	{
+		trace("-------------------------------------------------------------------------------- onErrorEvent");
+		trace("-------------------------------------------------------------------------------- onErrorEvent");
+		trace("-------------------------------------------------------------------------------- onErrorEvent");
+
+		if (_alreadySentAnErrorThisSession)
 		{
-			e.stopImmediatePropagation();
+			return; // Solo 1 error por sesion
 		}
+		_alreadySentAnErrorThisSession = true;
+		
+		CACHED_STACK_TRACE = getStackTrace();
+		
+		//#if !flash
+			doErrorStuff(e);		//easy to separately override
+		/*#else
+			doErrorStuffByHTTP(e);	//minimal flash error report
+		#end*/
+		
+		e.__isCancelled = true;		//cancel the event. We control exiting from here on out.
 		
 		if (closeOnCrash)
 		{
@@ -216,13 +239,12 @@ class CrashDumper
 			{
 				postCrashMethod(this);
 			}
-		}
+		}		
 	}
 	
 	
 	private function doErrorStuff(e:Dynamic, writeToFile:Bool = true, sendToServer:Bool = true, traceToLog:Bool = true):Void
 	{
-		if(!CrashDumper.active) return;
 		theError = e;
 		
 		var pathLog:String = "log/";				//  path/to/log/
@@ -238,7 +260,7 @@ class CrashDumper
 		
 		if (customDataMethod != null)
 		{
-			customDataMethod(this);			//allow the user to add custom data to the CrashDumper before it outputs
+			errorMessage = customDataMethod(errorMessage);			//allow the user to add custom data to the CrashDumper before it outputs
 		}
 		
 		var logdir:String = session.id + "_CRASH/"; //directory name for this crash
@@ -249,25 +271,21 @@ class CrashDumper
 			trace("MESSAGE = " + errorMessage);
 		}
 		
-		var path2Log = Util.uPath([path, pathLog]);
-		var path2LogErrors = Util.uPath([path, pathLogErrors]);
-		var path2LogErrorsDir = Util.uPath([path, pathLogErrors, logdir]);
-		
 		#if sys
 			if (writeToFile)
 			{
-				if (!FileSystem.exists(path2Log))
+				if (!FileSystem.exists(Util.pathFix(path + pathLog)))
 				{
-					FileSystem.createDirectory(path2Log);
+					FileSystem.createDirectory(path + pathLog);
 				}
-				if (!FileSystem.exists(path2LogErrors))
+				if (!FileSystem.exists(Util.pathFix(path + pathLogErrors)))
 				{
-					FileSystem.createDirectory(path2LogErrors);
+					FileSystem.createDirectory(path + pathLogErrors);
 				}
 				
 				var counter:Int = 0;
 				var failsafe:Int = 999;
-				while (FileSystem.exists(path2LogErrorsDir) && failsafe > 0)
+				while (FileSystem.exists(Util.pathFix(path + pathLogErrors + logdir)) && failsafe > 0)
 				{
 					//if the session ID is not unique for some reason, append numbers until it is
 					logdir = session.id + "_CRASH_" + counter + "/";
@@ -275,20 +293,17 @@ class CrashDumper
 					failsafe--;
 				}
 				
-				FileSystem.createDirectory(path2LogErrorsDir);
+				FileSystem.createDirectory(path + pathLogErrors + logdir);
 				
-				if (FileSystem.exists(path2LogErrorsDir))
+				if (FileSystem.exists(Util.pathFix(path + pathLogErrors + logdir)))
 				{
-					uniqueErrorLogPath = path2LogErrorsDir;
+					uniqueErrorLogPath = path + pathLogErrors + logdir;
 					//write out the error message
-					
-					var outPath = Util.uPath([path2LogErrors, logdir, "_error.txt"]);
-					
-					var f:FileOutput = File.write(outPath);
+					var f:FileOutput = File.write(path + pathLogErrors + logdir + "_error.txt");
 					f.writeString(errorMessage);
 					f.close();
 					
-					var sanityCheck:String = File.getContent(outPath);
+					var sanityCheck:String = File.getContent(path + pathLogErrors + logdir + "_error.txt");
 					
 					//write out all our associated game session files
 					for (filename in session.files.keys())
@@ -296,8 +311,7 @@ class CrashDumper
 						var filecontent:String = session.files.get(filename);
 						if (filecontent != "" && filecontent != null)
 						{
-							var fileOut = Util.uPath([pathLogErrors, logdir, filename]);
-							logFile(fileOut, filecontent);
+							logFile(pathLogErrors + logdir + filename, filecontent);
 						}
 					}
 				}
@@ -332,7 +346,7 @@ class CrashDumper
 			writer.write(entries);
 			var zipfileBytes:Bytes = bytesOutput.getBytes();
 			
-			Util.sendReport(request, zipfileBytes);
+			Util.sendReport(request, zipfileBytes, _onCompleteCallback);
 		}
 	}
 	
@@ -340,8 +354,14 @@ class CrashDumper
 	{	
 		theError = e;
 		var errorMessage:String = errorMessageStr();
-		request.setParameter("result",errorMessage);
-		request.request(true);
+		/*request.setParameter("result",errorMessage);
+		request.request(true);*/
+
+	}
+
+	function urlLoaderCompleteListener(evt: Event): Void
+	{
+		trace("COMPLETE!");
 	}
 	
 	/**
@@ -390,18 +410,6 @@ class CrashDumper
 	
 	public function errorMessageStr():String
 	{
-		if (system == null && collectSystemData)
-		{
-			try
-			{
-				system = new SystemData();
-			}
-			catch (msg:String)
-			{
-				trace("error during crashdump : " + msg);
-			}
-		}
-		
 		var str:String = "";
 		str = systemStr();
 		str = endlConcat(str, sessionStr());		//we separate the output into three blocks so it's easy to override them with your own customized output
@@ -416,22 +424,12 @@ class CrashDumper
 	#if sys
 		private function logFile(filename:String, content:String):Void
 		{
-			filename = getSafeFilename(path, filename);
-			var f = File.write(filename);
+			var f = File.write(path + filename);
 			f.writeString(content);
 			f.close();
 		}
 	#end
 	
-	private function getSafeFilename(path:String, filename:String):String
-	{
-		var lastIsSlash = false;
-
-		
-		filename = lastIsSlash ? Util.uCombine([path, filename]) : Util.uCombine([path, "/", filename]);
-		
-		return filename;
-	}
 	
 	/**
 	 * Outputs basic information about the user's system
@@ -439,8 +437,6 @@ class CrashDumper
 	 */
 	
 	private function systemStr():String {
-		
-		if(!collectSystemData) return "";
 		return system.summary();
 	}
 	
@@ -452,14 +448,42 @@ class CrashDumper
 	private function sessionStr():String {
 		return "--------------------------------------" + endl + 
 		"filename:\t" + session.fileName + endl + 
-		#if !flash
-			"package:\t" + session.packageName + endl + 
-			"version:\t" + session.version + endl + 
-		#end
+		"package:\t" + session.packageName + endl + 
+		"version:\t" + session.version + endl + 
 		"sess. ID:\t" + session.id + endl + 
 		"started:\t" + session.startTime.toString();
 	}
-	
+
+	function formatErrorName(errorData: Dynamic): String
+	{
+		var res: String = "error:\t\t";
+
+#if flash
+		if (Std.is(errorData, UncaughtErrorEvent))
+		{
+			var lines: Array<String> = errorData.error.getStackTrace().split(endl);
+			var i: Int = 0;
+			for (line in lines)
+			{
+				res += StringTools.trim(line);
+				res += " ";
+				i++;
+				if (i >= 2)
+					break;
+			}
+		}
+		else
+		{
+			res += errorData;
+		}
+#else
+		res += errorData;
+#end
+
+		return res + endl;
+	}
+
+
 	/**
 	 * Outputs information about the crash itself, including error message, crash time, and stack trace
 	 * @param	errorData	the .error parameter from the object passed in to onErrorEvent
@@ -469,8 +493,10 @@ class CrashDumper
 	private function crashStr(errorData:Dynamic):String {
 		var str:String = "--------------------------------------" + endl + 
 		"crashed:\t" + Date.now().toString() + endl + 
-		"duration:\t" + getTimeStr((Date.now().getTime()-session.startTime.getTime())) + endl + 
-		"error:\t\t" + errorData + endl;
+		"duration:\t" + getTimeStr((Date.now().getTime()-session.startTime.getTime())) + endl +
+		formatErrorName(errorData);
+
+
 		if (SHOW_STACK)
 		{
 			#if sys
@@ -479,6 +505,7 @@ class CrashDumper
 				str += "stack:" + endl + errorData.error.getStackTrace() + endl;
 			#end
 		}
+		trace("str");
 		return str;
 	}
 	
@@ -512,17 +539,7 @@ class CrashDumper
 	
 	private function getStackTrace():String
 	{
-		var stackTrace:String = "";
-		var stack:Array<StackItem> = CallStack.exceptionStack();
-		#if flash
-		stack.reverse();
-		#end
-		var item:StackItem;
-		for (item in stack)
-		{
-			stackTrace += printStackItem(item) + endl;
-		}
-		return stackTrace;
+		return CallStack.toString(CallStack.exceptionStack());
 	}
 	
 	

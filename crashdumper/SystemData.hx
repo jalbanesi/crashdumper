@@ -39,6 +39,12 @@ class SystemData
 			os = "linux";
 		#elseif android
 			os = "android";
+			osName = flash.system.Capabilities.os;
+			cpuName = flash.system.Capabilities.cpuArchitecture;
+			totalMemory = 0;
+			gpuName = "unknown";
+			gpuDriverVersion = "unknown";
+			
 		#elseif ios
 			os = "ios";
 		#elseif flash
@@ -50,6 +56,8 @@ class SystemData
 			gpuName = "unknown";
 			gpuDriverVersion = "unknown";
 		#end
+		
+		
 		
 		try {
 			#if windows
