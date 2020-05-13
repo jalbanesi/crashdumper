@@ -46,7 +46,7 @@ class HookOpenFL implements IHookPlatform
 				#else
 					fileName = Application.current.meta["file"];
 					packageName = Application.current.meta["packageName"];
-					version = Application.current.meta["version"];
+					version = Version.VERSION; //Application.current.meta["version"];
 				#end
 			//#end
 		#else
@@ -93,6 +93,10 @@ class HookOpenFL implements IHookPlatform
 	
 	public function getZipBytes(str):Bytes
 	{
+		var bytes:ByteArray = new ByteArray();
+		bytes.writeUTFBytes(str);
+		return bytes;
+
 		#if !html5
 			//#if flash
 			/*	var fbytes:ByteArray = new ByteArray();

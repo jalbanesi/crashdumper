@@ -1,16 +1,18 @@
 package crashdumper.hooks;
+import flash.events.SecurityErrorEvent;
+import flash.events.IOErrorEvent;
 import crashdumper.hooks.openfl.HookOpenFL;
 import haxe.Http;
 import haxe.io.Bytes;
 import haxe.io.Path;
 import haxe.io.StringInput;
-import openfl.events.Event;
-import openfl.net.URLLoader;
-import openfl.net.URLLoaderDataFormat;
-import openfl.net.URLRequestHeader;
-import openfl.net.URLRequestMethod;
-import openfl.net.URLRequest;
-import openfl.net.URLVariables;
+import flash.events.Event;
+import flash.net.URLLoader;
+import flash.net.URLLoaderDataFormat;
+import flash.net.URLRequestHeader;
+import flash.net.URLRequestMethod;
+import flash.net.URLRequest;
+import flash.net.URLVariables;
 
 
 /**
@@ -114,14 +116,13 @@ class Util
 				}
 				trace((cast evt.currentTarget).data);
 			});
-			/*urlLoader.addEventListener(IOErrorEvent.IO_ERROR, onError);
-			urlLoader.addEventListener(SecurityErrorEvent.SECURITY_ERROR, onError);*/
+			//urlLoader.addEventListener(IOErrorEvent.IO_ERROR, onIOError);
+			//urlLoader.addEventListener(SecurityErrorEvent.SECURITY_ERROR, onSecurityError);
 			urlLoader.load(urlRequest);			
 
 		#end
 
 	}
-
 
 
 	public static function slash():String

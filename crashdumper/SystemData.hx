@@ -13,6 +13,7 @@ package crashdumper;
  * 
  * @author larsiusprime
  */
+import js.Browser;
 class SystemData
 {
 	public var os:String;				//simple constant matching the haxedef -- "windows", "mac", "linux", etc
@@ -23,6 +24,7 @@ class SystemData
 	public var cpuName:String;			//the name of your cpu, -- "Intel(R) Core(TM)2 Duo CPU     E7400  @ 2.80GHz"
 	public var gpuName:String;			//the name of your gpu, -- "ATI Radeon HD 4800 Series"
 	public var gpuDriverVersion:String;	//version number of gpu driver, -- "8.970.100.1100"
+	public var deviceName:String; 		//for mobile, device name
 	
 	#if flash
 	public var playerVersion:String;	//version number of the flash player, ie "WIN 12,0,0,77"
@@ -57,7 +59,13 @@ class SystemData
 			gpuDriverVersion = "unknown";
 		#end
 		
-		
+		#if (html5 && cordova)
+			var window: Dynamic = cast Browser.window;
+			os = window.device.platform;
+			osName = window.device.platform + " " + window.device.version;
+			deviceName = window.device.manufacturer + " " + window.device.model;
+			gpuName = window.device.gpu;
+		#end
 		
 		try {
 			#if windows
@@ -113,7 +121,10 @@ class SystemData
 		
 		return "SystemData" + endl() + 
 		"{" + endl() + 
-		"  OS : " + osName + endl() + 
+		"  OS : " + osName + endl() +
+		#if (html5 && cordova)
+		"  DEVICE: " + deviceName + endl() +
+		#end
 		"  RAM: " + totalMemory + " KB (" + toGBStr(totalMemory) + " GB)" + endl() +
 		"  CPU: " + cpuName + endl() +
 		"  GPU: " + gpuName + ", driver v. " + gpuDriverVersion + endl() +
@@ -132,6 +143,9 @@ class SystemData
 		#if flash
 		"  playerType: " + playerType + "\n" + 
 		"  playerVersion: " + playerVersion + "\n" +
+		#end
+		#if (html5 && cordova)
+		"  deviceName: " + deviceName + "\n" +
 		#end
 		"  totalMemory: " + toGBStr(totalMemory) + "\n" +
 		"  cpuName: " + cpuName + "\n" +
